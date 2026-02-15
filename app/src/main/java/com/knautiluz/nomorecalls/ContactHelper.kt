@@ -5,8 +5,10 @@ import android.net.Uri
 import android.provider.ContactsContract
 
 object ContactHelper {
-    fun isNumberInContacts(context: Context, phoneNumber: String?): Boolean {
-        if (phoneNumber.isNullOrEmpty()) return false
+    fun getContactName(context: Context, phoneNumber: String): String? {
+        if (phoneNumber.isBlank()) return null
+
+        phoneNumber.replace(Regex("[^0-9]"), "")
 
         val uri = Uri.withAppendedPath(
             ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
@@ -15,12 +17,11 @@ object ContactHelper {
 
         val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
 
-        return try {
-            context.contentResolver.query(uri, projection, null, null, null)?.use {
-                it.count > 0
-            } ?: false
-        } catch (e: Exception) {
-            false
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                return cursor.getString(0)
+            }
         }
+        return null
     }
 }

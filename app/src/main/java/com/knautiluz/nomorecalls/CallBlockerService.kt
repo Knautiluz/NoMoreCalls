@@ -12,45 +12,55 @@ class CallBlockerService : CallScreeningService() {
     override fun onScreenCall(callDetails: Call.Details) {
         val number = callDetails.handle?.schemeSpecificPart ?: return
         val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs", MODE_PRIVATE)
+
+        val allowedNumbers = sharedPrefs.getStringSet("allowedNumbers", emptySet()) ?: emptySet()
         val isBlockingEnabled = sharedPrefs.getBoolean("isBlockingEnabled", true)
 
-        val responseBuilder = CallResponse.Builder()
-
         if (!isBlockingEnabled) {
-            respondToCall(callDetails, responseBuilder.build())
+            respondToCall(callDetails, CallResponse.Builder().build())
             return
         }
 
-        val isNativeContact = ContactHelper.isNumberInContacts(this, number)
-        val allowedNumbers = sharedPrefs.getStringSet("allowedNumbers", emptySet()) ?: emptySet()
+        val incomingClean = normalizeNumber(number)
 
-        // Normalização: remove tudo que não é número para comparar
-        val normalizedIncoming = number.replace(Regex("[^0-9]"), "")
-        val isExplicitlyAllowed = allowedNumbers.any {
-            val norm = it.replace(Regex("[^0-9]"), "")
-            norm.isNotEmpty() && (normalizedIncoming.endsWith(norm) || norm.endsWith(normalizedIncoming))
+        val isAllowed = allowedNumbers.any {
+            normalizeNumber(it) == incomingClean
         }
 
-        // Rejeita todas as ligações de contatos que não estiverem liberados de ligar.
-        if (!isNativeContact || !isExplicitlyAllowed) {
-            responseBuilder.apply {
+        if (isAllowed) {
+            respondToCall(callDetails, CallResponse.Builder().build())
+        } else {
+            val response = CallResponse.Builder().apply {
                 setDisallowCall(true)
                 setRejectCall(true)
                 setSkipCallLog(false)
                 setSkipNotification(true)
-            }
-            pushBlockedNumber(number)
-            Log.d("CallBlocker", "Bloqueado: $number")
-        }
+            }.build()
 
-        respondToCall(callDetails, responseBuilder.build())
+            respondToCall(callDetails, response)
+
+            val contactName = ContactHelper.getContactName(this, number) ?: "Desconhecido"
+            pushBlockedNumber(number, contactName)
+        }
     }
 
-    private fun pushBlockedNumber(number: String) {
+    private fun normalizeNumber(num: String): String {
+        var clean = num.replace(Regex("[^0-9]"), "")
+
+        if (clean.startsWith("55") && clean.length > 10) {
+            clean = clean.substring(2)
+        }
+
+        if (clean.startsWith("0")) {
+            clean = clean.substring(1)
+        }
+
+        return clean
+    }
+
+    private fun pushBlockedNumber(number: String, name: String) {
         try {
-            val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs",
-                MODE_PRIVATE
-            )
+            val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs", MODE_PRIVATE)
             val gson = Gson()
             val json = sharedPrefs.getString("blockedCallsHistory", null)
             val type = object : TypeToken<MutableList<BlockedCall>>() {}.type
@@ -61,10 +71,10 @@ class CallBlockerService : CallScreeningService() {
                 mutableListOf()
             }
 
-            history.add(0, BlockedCall(number = number, time = System.currentTimeMillis()))
+            history.add(0, BlockedCall(number = number, name = name, time = System.currentTimeMillis()))
             if (history.size > 50) history.removeAt(history.size - 1)
 
-            sharedPrefs.edit { putString("blockedCallsHistory", gson.toJson(history)) }
+            sharedPrefs.edit(commit = true) { putString("blockedCallsHistory", gson.toJson(history)) }
         } catch (e: Exception) {
             Log.e("CallBlockerService", "Erro history: ${e.message}")
         }
