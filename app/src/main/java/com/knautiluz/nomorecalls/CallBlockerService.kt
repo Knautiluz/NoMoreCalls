@@ -1,6 +1,5 @@
 package com.knautiluz.nomorecalls
 
-import android.content.Context
 import android.telecom.Call
 import android.telecom.CallScreeningService
 import android.util.Log
@@ -11,8 +10,8 @@ import androidx.core.content.edit
 class CallBlockerService : CallScreeningService() {
 
     override fun onScreenCall(callDetails: Call.Details) {
-        val phoneNumber = callDetails.handle?.schemeSpecificPart ?: return
-        val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE)
+        val number = callDetails.handle?.schemeSpecificPart ?: return
+        val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs", MODE_PRIVATE)
         val isBlockingEnabled = sharedPrefs.getBoolean("isBlockingEnabled", true)
 
         val responseBuilder = CallResponse.Builder()
@@ -22,17 +21,17 @@ class CallBlockerService : CallScreeningService() {
             return
         }
 
-        val isNativeContact = ContactHelper.isNumberInContacts(this, phoneNumber)
+        val isNativeContact = ContactHelper.isNumberInContacts(this, number)
         val allowedNumbers = sharedPrefs.getStringSet("allowedNumbers", emptySet()) ?: emptySet()
 
         // Normalização: remove tudo que não é número para comparar
-        val normalizedIncoming = phoneNumber.replace(Regex("[^0-9]"), "")
+        val normalizedIncoming = number.replace(Regex("[^0-9]"), "")
         val isExplicitlyAllowed = allowedNumbers.any {
             val norm = it.replace(Regex("[^0-9]"), "")
             norm.isNotEmpty() && (normalizedIncoming.endsWith(norm) || norm.endsWith(normalizedIncoming))
         }
 
-        // Lógica: Bloqueia se não for contato OU se for contato mas não estiver marcado na lista
+        // Rejeita todas as ligações de contatos que não estiverem liberados de ligar.
         if (!isNativeContact || !isExplicitlyAllowed) {
             responseBuilder.apply {
                 setDisallowCall(true)
@@ -40,16 +39,18 @@ class CallBlockerService : CallScreeningService() {
                 setSkipCallLog(false)
                 setSkipNotification(true)
             }
-            saveToHistory(phoneNumber)
-            Log.d("CallBlocker", "Bloqueado: $phoneNumber")
+            pushBlockedNumber(number)
+            Log.d("CallBlocker", "Bloqueado: $number")
         }
 
         respondToCall(callDetails, responseBuilder.build())
     }
 
-    private fun saveToHistory(number: String) {
+    private fun pushBlockedNumber(number: String) {
         try {
-            val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE)
+            val sharedPrefs = applicationContext.getSharedPreferences("CallGuardPrefs",
+                MODE_PRIVATE
+            )
             val gson = Gson()
             val json = sharedPrefs.getString("blockedCallsHistory", null)
             val type = object : TypeToken<MutableList<BlockedCall>>() {}.type

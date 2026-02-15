@@ -1,7 +1,6 @@
 package com.knautiluz.nomorecalls
 
 import android.Manifest
-import android.app.Activity
 import android.app.role.RoleManager
 import android.content.Context
 import android.content.pm.PackageManager
@@ -25,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
@@ -34,8 +32,6 @@ import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-data class Contact(val id: String, val name: String, val number: String, var isAllowed: Boolean = false)
-
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -43,7 +39,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val requestRoleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
+        if (result.resultCode == RESULT_OK) {
             Toast.makeText(this, "Proteção Ativa!", Toast.LENGTH_SHORT).show()
         }
     }
@@ -150,7 +146,7 @@ fun AppScreen(activity: MainActivity) {
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Icon(Icons.Default.Person, null) }, label = { Text("Contatos") })
-                NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Block, null) }, label = { Text("Histórico") })
+                NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Icon(Icons.Default.Shield, null) }, label = { Text("Histórico") })
                 NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Config") })
             }
         }
@@ -222,8 +218,8 @@ fun BlockedCallsScreen() {
 @Composable
 fun SettingsScreen(activity: MainActivity) {
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Permissão de Bloqueio", style = MaterialTheme.typography.headlineSmall)
+        Text("Configuração de aplicativo anti-spam", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { activity.requestScreeningRole() }) { Text("Definir como App Padrão") }
+        Button(onClick = { activity.requestScreeningRole() }) { Text("Difinir padrão anti-spam.") }
     }
 }
