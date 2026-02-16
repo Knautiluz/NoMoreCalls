@@ -5,14 +5,29 @@ import android.net.Uri
 import android.provider.ContactsContract
 
 object ContactHelper {
+
+    fun normalizeNumber(num: String): String {
+        var clean = num.replace(Regex("[^0-9]"), "")
+
+        if (clean.startsWith("55") && clean.length > 10) {
+            clean = clean.substring(2)
+        }
+
+        if (clean.startsWith("0")) {
+            clean = clean.substring(1)
+        }
+
+        return clean
+    }
+
     fun getContactName(context: Context, phoneNumber: String): String? {
         if (phoneNumber.isBlank()) return null
 
-        phoneNumber.replace(Regex("[^0-9]"), "")
+        val normalizedNumber = normalizeNumber(phoneNumber)
 
         val uri = Uri.withAppendedPath(
             ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-            Uri.encode(phoneNumber)
+            Uri.encode(normalizedNumber)
         )
 
         val projection = arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME)
