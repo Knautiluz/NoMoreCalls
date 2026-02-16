@@ -3,9 +3,12 @@ package com.knautiluz.nomorecalls
 import android.Manifest
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.provider.ContactsContract
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -15,9 +18,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +38,15 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val PREFS_NAME = "CallGuardPrefs"
+        const val KEY_IS_FIRST_RUN = "isFirstRun"
+        const val KEY_ALLOWED_NUMBERS = "allowedNumbers"
+        const val KEY_IS_BLOCKING_ENABLED = "isBlockingEnabled"
+        const val KEY_BLOCKED_CALLS_HISTORY = "blockedCallsHistory"
+        const val KEY_PERSISTENT_CALLS_ATTEMPTS = "persistentCallsAttempts"
+    }
+
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
         if (isGranted) {
             recreate()
@@ -43,11 +55,17 @@ class MainActivity : ComponentActivity() {
 
     private val requestRoleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
-            val sharedPrefs = getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE)
-            sharedPrefs.edit { putBoolean("isFirstRun", false) }
+            val sharedPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            sharedPrefs.edit {
+                putBoolean(KEY_IS_FIRST_RUN, false)
+            }
             checkAndRequestContactsPermission()
         } else {
             Toast.makeText(this, "É necessário definir como padrão para continuar", Toast.LENGTH_SHORT).show()
+            val sharedPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            sharedPrefs.edit {
+                putBoolean(KEY_IS_FIRST_RUN, true)
+            }
         }
     }
 
@@ -56,8 +74,8 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                val sharedPrefs = remember { getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE) }
-                var isFirstRun by remember { mutableStateOf(sharedPrefs.getBoolean("isFirstRun", true)) }
+                val sharedPrefs = remember { getSharedPreferences(PREFS_NAME, MODE_PRIVATE) }
+                var isFirstRun by remember { mutableStateOf(sharedPrefs.getBoolean(KEY_IS_FIRST_RUN, true)) }
 
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     if (isFirstRun) {
@@ -76,15 +94,26 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun requestScreeningRole() {
+    fun openSettings() {
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", packageName, null)
+        }
+        startActivity(intent)
+    }
+
+    fun requestScreeningRole(showToastIfAlreadyDefault: Boolean = false) {
         val roleManager = getSystemService(RoleManager::class.java)
         if (roleManager != null && !roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
             val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
             requestRoleLauncher.launch(intent)
         } else {
-            val sharedPrefs = getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE)
-            sharedPrefs.edit { putBoolean("isFirstRun", false) }
+            if (showToastIfAlreadyDefault) {
+                Toast.makeText(this, "O aplicativo já é o padrão.", Toast.LENGTH_SHORT).show()
+            }
+            val sharedPrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            sharedPrefs.edit { putBoolean(KEY_IS_FIRST_RUN, false) }
             checkAndRequestContactsPermission()
+            recreate()
         }
     }
 
@@ -118,25 +147,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppScreen(activity: MainActivity) {
     val context = LocalContext.current
-    val sharedPrefs = remember { context.getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE) }
+    val sharedPrefs = remember { context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE) }
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf("") }
-    var isBlockingEnabled by remember { mutableStateOf(sharedPrefs.getBoolean("isBlockingEnabled", true)) }
+    var isBlockingEnabled by remember { mutableStateOf(sharedPrefs.getBoolean(MainActivity.KEY_IS_BLOCKING_ENABLED, true)) }
     var allContacts by remember { mutableStateOf(emptyList<Contact>()) }
-    var allowedNumbers by remember { mutableStateOf(sharedPrefs.getStringSet("allowedNumbers", emptySet()) ?: emptySet()) }
+    var allowedNumbers by remember { mutableStateOf(sharedPrefs.getStringSet(MainActivity.KEY_ALLOWED_NUMBERS, emptySet()) ?: emptySet()) }
+    var persistentCallsAttempts by remember { mutableIntStateOf(sharedPrefs.getInt(MainActivity.KEY_PERSISTENT_CALLS_ATTEMPTS, 3)) }
 
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
-            val loaded = activity.loadContacts(context)
-            allContacts = loaded.map { it.copy(isAllowed = allowedNumbers.contains(it.number)) }
+            allContacts = activity.loadContacts(context)
         }
     }
 
     val filteredContacts = allContacts.filter {
         it.name.contains(searchQuery, true) || it.number.contains(searchQuery)
     }.sortedWith(
-        compareByDescending<Contact> { allowedNumbers.contains(it.number) }
+        compareByDescending<Contact> { allowedNumbers.contains(it.id) }
             .thenBy { it.name.lowercase() }
     )
 
@@ -144,13 +173,7 @@ fun AppScreen(activity: MainActivity) {
         topBar = {
             Column {
                 CenterAlignedTopAppBar(
-                    title = { Text("No More Calls", fontWeight = FontWeight.Bold) },
-                    actions = {
-                        Switch(checked = isBlockingEnabled, onCheckedChange = {
-                            isBlockingEnabled = it
-                            sharedPrefs.edit { putBoolean("isBlockingEnabled", it) }
-                        })
-                    }
+                    title = { Text("No More Calls", fontWeight = FontWeight.Bold) }
                 )
                 if (selectedTab == 0) {
                     OutlinedTextField(
@@ -179,12 +202,17 @@ fun AppScreen(activity: MainActivity) {
                     allowedNumbers = newSet
 
                     sharedPrefs.edit {
-                        putStringSet("allowedNumbers", newSet.toSet())
-                        commit()
+                        putStringSet(MainActivity.KEY_ALLOWED_NUMBERS, newSet)
                     }
                 }
                 1 -> BlockedCallsScreen()
-                2 -> SettingsScreen(activity)
+                2 -> SettingsScreen(
+                    activity = activity,
+                    isBlockingEnabled = isBlockingEnabled,
+                    onBlockingEnabledChange = { isBlockingEnabled = it },
+                    persistentCallsAttempts = persistentCallsAttempts,
+                    onPersistentCallsAttemptsChange = { persistentCallsAttempts = it }
+                )
             }
         }
     }
@@ -194,11 +222,11 @@ fun AppScreen(activity: MainActivity) {
 fun ContactsList(contacts: List<Contact>, allowedNumbers: Set<String>, onToggle: (String, Boolean) -> Unit) {
     LazyColumn {
         items(contacts) { contact ->
-            val isAllowed = allowedNumbers.contains(contact.number)
+            val isAllowed = allowedNumbers.contains(contact.id)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onToggle(contact.number, !isAllowed) }
+                    .clickable { onToggle(contact.id, !isAllowed) }
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -207,7 +235,7 @@ fun ContactsList(contacts: List<Contact>, allowedNumbers: Set<String>, onToggle:
                     Text(text = contact.number, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(text = if (isAllowed) "✓ PERMITIR" else "✕ BLOQUEAR", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (isAllowed) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
                 }
-                Checkbox(checked = isAllowed, onCheckedChange = { onToggle(contact.number, it) }, colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary, uncheckedColor = MaterialTheme.colorScheme.error))
+                Checkbox(checked = isAllowed, onCheckedChange = { onToggle(contact.id, it) }, colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary, uncheckedColor = MaterialTheme.colorScheme.error))
             }
             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
@@ -217,23 +245,27 @@ fun ContactsList(contacts: List<Contact>, allowedNumbers: Set<String>, onToggle:
 @Composable
 fun BlockedCallsScreen() {
     val context = LocalContext.current
-    val sharedPrefs = context.getSharedPreferences("CallGuardPrefs", Context.MODE_PRIVATE)
+    val sharedPrefs = context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE)
     val gson = Gson()
-    val json = sharedPrefs.getString("blockedCallsHistory", "[]")
+    val json = sharedPrefs.getString(MainActivity.KEY_BLOCKED_CALLS_HISTORY, "[]")
     val type = object : TypeToken<List<BlockedCall>>() {}.type
-    val history: List<BlockedCall> = try { gson.fromJson(json, type) ?: emptyList() } catch (e: Exception) { emptyList() }
+    val history: List<BlockedCall> = try { gson.fromJson(json, type) ?: emptyList() } catch (_: Exception) { emptyList() }
+
     if (history.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Nenhum bloqueio registrado.") }
     } else {
         LazyColumn {
             items(history) { call ->
+                val icon = if (call.isAllowedByPersistence) Icons.Default.CheckCircle else Icons.Default.Block
+                val iconColor = if (call.isAllowedByPersistence) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error
                 ListItem(
                     headlineContent = { Text(call.name, fontWeight = FontWeight.Bold) },
                     supportingContent = {
                         val date = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(call.time))
-                        Text("${call.number} • $date")
+                        val status = if (call.isAllowedByPersistence) "Chamada Permitida." else "Chamada Bloqueada."
+                        Text("${call.number} • $date\n$status Tentativa (${call.tries})")
                     },
-                    leadingContent = { Icon(imageVector = Icons.AutoMirrored.Filled.CallMissed, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                    leadingContent = { Icon(imageVector = icon, contentDescription = null, tint = iconColor) }
                 )
                 HorizontalDivider()
             }
@@ -242,25 +274,104 @@ fun BlockedCallsScreen() {
 }
 
 @Composable
-fun SettingsScreen(activity: MainActivity) {
-    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("Configuração de aplicativo anti-spam", style = MaterialTheme.typography.headlineSmall)
+fun SettingsScreen(
+    activity: MainActivity,
+    isBlockingEnabled: Boolean,
+    onBlockingEnabledChange: (Boolean) -> Unit,
+    persistentCallsAttempts: Int,
+    onPersistentCallsAttemptsChange: (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val sharedPrefs = remember { context.getSharedPreferences(MainActivity.PREFS_NAME, Context.MODE_PRIVATE) }
+
+    Column(
+        Modifier.fillMaxSize().padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Filtrar Chamadas", style = MaterialTheme.typography.headlineSmall)
+        Switch(checked = isBlockingEnabled, onCheckedChange = {
+            onBlockingEnabledChange(it)
+            sharedPrefs.edit { putBoolean(MainActivity.KEY_IS_BLOCKING_ENABLED, it) }
+        })
         Spacer(Modifier.height(16.dp))
-        Button(onClick = { activity.requestScreeningRole() }) { Text("Definir padrão anti-spam") }
+        Button(onClick = { activity.requestScreeningRole(true) }) { Text("Definir padrão anti-spam") }
+        Text(
+            "Certifique-se de selecionar o No More Calls como app padrão anti-spam, para correto funcionamento.",
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = { activity.openSettings() }) { Text("Configurações do aplicativo") }
+        Text(
+            "Caso a agenda não mostre os contatos, acione as configurações do app e dê a permissão de agenda.",
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(16.dp))
+        HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
+        Spacer(Modifier.height(16.dp))
+        Text("Liberar chamadas persistentes", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            "Liberar chamadas persistentes refere-se a um número ligar consecutivamente em um período menor que 10 minutos.",
+            style = MaterialTheme.typography.titleSmall,
+            textAlign = TextAlign.Center
+        )
+        val attempts = persistentCallsAttempts.toFloat()
+        Slider(
+            value = attempts,
+            onValueChange = {
+                onPersistentCallsAttemptsChange(it.toInt())
+                sharedPrefs.edit { putInt(MainActivity.KEY_PERSISTENT_CALLS_ATTEMPTS, it.toInt()) }
+            },
+            valueRange = 0f..10f,
+            steps = 9,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            if (persistentCallsAttempts > 0) "Liberar chamadas após $persistentCallsAttempts tentativas"
+            else "Não liberar chamadas persistentes",
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
 @Composable
 fun OnboardingScreen(onRequestRole: () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(modifier = Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Icon(imageVector = Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(100.dp), tint = MaterialTheme.colorScheme.primary)
+        Column(
+            modifier = Modifier.fillMaxSize().padding(32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shield,
+                contentDescription = null,
+                modifier = Modifier.size(100.dp),
+                tint = Color(0xFF4CAF50)
+            )
             Spacer(modifier = Modifier.height(24.dp))
-            Text(text = "Bem-vindo ao Call Guard", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(
+                text = "Bem-vindo (a) ao filtro de chamadas No More Calls",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center
+            )
             Spacer(modifier = Modifier.height(16.dp))
-            Text(text = "Para que possamos bloquear chamadas indesejadas, precisamos ser seu aplicativo de proteção contra spam padrão.", style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text = "Para que possamos filtrar apenas chamadas dos contatos, aceite o aplicativo como padrão anti-spam e dê acesso a lista de contatos.",
+                style = MaterialTheme.typography.bodyLarge,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(modifier = Modifier.height(40.dp))
-            Button(onClick = onRequestRole, modifier = Modifier.fillMaxWidth().height(56.dp), shape = MaterialTheme.shapes.medium) {
+            Button(
+                onClick = onRequestRole,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                shape = MaterialTheme.shapes.medium
+            ) {
                 Text("ATIVAR PROTEÇÃO AGORA")
             }
         }
