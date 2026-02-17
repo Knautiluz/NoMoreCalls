@@ -19,8 +19,9 @@ class CallBlockerService : CallScreeningService() {
 
     override fun onScreenCall(callDetails: Call.Details) {
         val number = callDetails.handle?.schemeSpecificPart ?: return
+        val origin = callDetails.contactDisplayName ?: "Desconhecido"
         val normalizedNumber = ContactHelper.normalizeNumber(number)
-        val contactName = ContactHelper.getContactName(this, normalizedNumber) ?: "Desconhecido"
+        val contactName = ContactHelper.getContactName(this, normalizedNumber) ?: origin
         val sharedPrefs = applicationContext.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
         val allowedNumbers = sharedPrefs.getStringSet(KEY_ALLOWED_NUMBERS, emptySet()) ?: emptySet()
@@ -64,7 +65,7 @@ class CallBlockerService : CallScreeningService() {
         return if (json != null) {
             try {
                 gson.fromJson(json, type)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 mutableListOf()
             }
         } else {

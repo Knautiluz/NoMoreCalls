@@ -314,7 +314,7 @@ fun SettingsScreen(
         Text("Liberar chamadas persistentes", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(16.dp))
         Text(
-            "Liberar chamadas persistentes refere-se a um número ligar consecutivamente em um período menor que 10 minutos.",
+            "Liberar chamadas persistentes refere-se a um usuário ligar consecutivamente em um período menor que 10 minutos.",
             style = MaterialTheme.typography.titleSmall,
             textAlign = TextAlign.Center
         )
@@ -329,9 +329,11 @@ fun SettingsScreen(
             steps = 9,
             modifier = Modifier.fillMaxWidth()
         )
-        Text(
-            if (persistentCallsAttempts > 0) "Liberar chamadas após $persistentCallsAttempts tentativas"
-            else "Não liberar chamadas persistentes",
+        Text(if (persistentCallsAttempts > 0) {
+            "Liberar chamadas após $persistentCallsAttempts ${if (persistentCallsAttempts < 2) "tentativa" else "tentativas"}"
+        } else {
+            "Não liberar chamadas persistentes"
+        },
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center
         )
@@ -361,7 +363,7 @@ fun OnboardingScreen(onRequestRole: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Para que possamos filtrar apenas chamadas dos contatos, aceite o aplicativo como padrão anti-spam e dê acesso a lista de contatos.",
+                text = "Para que possamos filtrar apenas chamadas dos contatos, aceite o aplicativo como padrão anti-spam e dê acesso à lista de contatos.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
