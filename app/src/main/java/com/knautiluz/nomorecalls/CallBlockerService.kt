@@ -18,6 +18,10 @@ class CallBlockerService : CallScreeningService() {
     }
 
     override fun onScreenCall(callDetails: Call.Details) {
+        if (callDetails.callDirection == Call.Details.DIRECTION_OUTGOING) {
+            respondToCall(callDetails, CallResponse.Builder().build())
+            return
+        }
         val number = callDetails.handle?.schemeSpecificPart ?: return
         val origin = callDetails.contactDisplayName ?: "Desconhecido"
         val normalizedNumber = ContactHelper.normalizeNumber(number)
