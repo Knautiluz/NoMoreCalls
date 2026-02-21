@@ -4,13 +4,7 @@ build/
 captures/
 
 # Configurações do Android Studio (específicas da máquina local)
-.idea/workspace.xml
-.idea/navEditor.xml
-.idea/assetWizardSettings.xml
-.idea/modules.xml
-.idea/runConfigurations.xml
-.idea/caches/
-.idea/libraries/
+.idea/
 *.iml
 *.ipr
 *.iws
